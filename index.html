@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The company words keep: a distributional semantics demo</title>
+<style>
+  :root {
+    --surface: #fcfcfb;
+    --panel: #ffffff;
+    --line: #e4e3df;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --muted: #8b8a85;
+    --accent: #2a78d6;
+    --accent-soft: #dbe8f8;
+    --target: #0b0b0b;
+    --context-bg: #fde7b0;
+    --flash: #fff3c4;
+    font-size: 19px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--surface); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  header { display: flex; align-items: center; gap: 1rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 1.15rem; margin: 0; font-weight: 650; flex: 1 1 auto; }
+  header h1 span { color: var(--text-2); font-weight: 400; }
+  .hgroup { display: flex; align-items: center; gap: .5rem; }
+  select, input[type=text] { border: 1px solid var(--line); border-radius: 8px; padding: .35rem .55rem; background: var(--panel); }
+  .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: .35rem .75rem; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  nav.tabs { display: flex; gap: .3rem; padding: .6rem 1.2rem 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+  nav.tabs button { border: none; background: none; padding: .55rem 1rem; border-bottom: 3px solid transparent; cursor: pointer; font-weight: 550; color: var(--text-2); }
+  nav.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  nav.tabs button .k { display: inline-block; min-width: 1.3em; color: var(--muted); font-weight: 400; }
+  .settings { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.4rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--line); background: #f6f6f4; font-size: .9rem; }
+  .settings .lab { color: var(--text-2); margin-right: .4rem; }
+  .chips { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: .3rem; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: .15rem .3rem .15rem .7rem; font-weight: 600; }
+  .chip button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 .3rem; font-size: 1rem; line-height: 1; }
+  .chip button:hover { color: var(--text); }
+  .chips input { width: 7.5em; padding: .2rem .5rem; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .seg button { border: none; background: none; padding: .25rem .6rem; cursor: pointer; border-right: 1px solid var(--line); }
+  .seg button:last-child { border-right: none; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  label.tg { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+  .addsent { display: inline-flex; gap: .4rem; flex: 1 1 22rem; }
+  .addsent input { flex: 1; }
+  main { padding: 1.1rem 1.2rem 2rem; }
+  .panel { display: none; }
+  .panel.on { display: block; }
+  .note { color: var(--text-2); font-size: .9rem; margin: .2rem 0 .8rem; }
+  h2 { font-size: 1.25rem; margin: 0 0 .5rem; }
+  /* Text */
+  textarea#corpus { width: 100%; min-height: 55vh; border: 1px solid var(--line); border-radius: 10px; padding: .8rem 1rem; line-height: 1.55; background: var(--panel); resize: vertical; }
+  .row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
+  /* Count */
+  .count-wrap { display: grid; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); gap: 1.4rem; }
+  .sentences { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .6rem .9rem; max-height: 68vh; overflow: auto; }
+  .sent { padding: .35rem .5rem; border-radius: 8px; line-height: 1.6; margin: .1rem 0; }
+  .sent.dim { color: var(--muted); }
+  .sent.done { color: var(--text-2); }
+  .sent.cur { background: #f1f5fb; outline: 2px solid var(--accent); color: var(--text); font-size: 1.15em; }
+  .sent.added::after { content: "added"; margin-left: .5rem; font-size: .7rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 0 .4rem; vertical-align: middle; }
+  .tok.t { font-weight: 750; text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 3px; text-underline-offset: 4px; }
+  .tok.c { background: var(--context-bg); border-radius: 4px; padding: 0 .12em; }
+  .tok.fw { color: var(--muted); }
+  .tok.outwin { color: var(--muted); }
+  .stepbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .7rem; }
+  .stepbar .prog { color: var(--text-2); margin-left: .4rem; }
+  .tally { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .8rem 1rem; max-height: 68vh; overflow: auto; }
+  .tally h3 { margin: 0 0 .5rem; font-size: 1.05rem; }
+  .trow { display: grid; grid-template-columns: 7.5em 1fr 2.2em; align-items: center; gap: .5rem; padding: .12rem .3rem; border-radius: 6px; }
+  .trow .bar { height: .7em; background: var(--accent); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .trow .n { text-align: right; font-variant-numeric: tabular-nums; }
+  .trow.flash { background: var(--flash); }
+  .targetpick { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
+  .targetpick button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: .2rem .8rem; cursor: pointer; font-weight: 600; }
+  .targetpick button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  /* Table */
+  .tablewrap { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  table.mx { border-collapse: separate; border-spacing: 2px; font-variant-numeric: tabular-nums; margin: .4rem; }
+  table.mx th, table.mx td { padding: .45rem .7rem; text-align: center; border-radius: 6px; }
+  table.mx thead th { color: var(--text-2); font-weight: 550; font-size: .95rem; }
+  table.mx tbody th { text-align: left; font-weight: 700; cursor: pointer; }
+  table.mx tr.sel th { color: var(--accent); }
+  table.mx tr.sel td { outline: 2px solid var(--accent); }
+  /* Space */
+  .space-wrap { display: grid; grid-template-columns: minmax(0, 3fr) minmax(15rem, 1.2fr); gap: 1.2rem; }
+  .plot { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .4rem; position: relative; }
+  .plot svg { width: 100%; height: auto; max-height: calc(100vh - 21rem); display: block; margin: 0 auto; }
+  .side { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }
+  .side .big { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem; font-size: .85rem; box-shadow: 0 4px 14px rgba(0,0,0,.08); display: none; white-space: nowrap; }
+  /* Similarity */
+  .sim-wrap { display: grid; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); gap: 1.4rem; }
+  .simlist { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .8rem 1rem; }
+  .srow { display: grid; grid-template-columns: 7.5em 1fr 3.4em; align-items: center; gap: .6rem; padding: .35rem .4rem; border-radius: 8px; cursor: pointer; }
+  .srow:hover { background: #f4f6f9; }
+  .srow.on { background: var(--accent-soft); }
+  .srow .track { height: 1.1em; background: #f0efec; border-radius: 0 6px 6px 0; position: relative; }
+  .srow .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 0 6px 6px 0; }
+  .srow .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .srow .w { font-weight: 650; }
+  .shared table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .shared td, .shared th { padding: .25rem .4rem; border-bottom: 1px solid var(--line); text-align: right; }
+  .shared td:first-child, .shared th:first-child { text-align: left; }
+  .empty { color: var(--muted); font-style: italic; }
+  button:focus { outline: none; }
+  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 900px) {
+    .count-wrap, .space-wrap, .sim-wrap { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>The company words keep <span>· counting contexts</span></h1>
+  <div class="hgroup">
+    <label for="preset" class="lab">Text</label>
+    <select id="preset">
+      <option value="dog">Dogs, cats, lions, cars</option>
+      <option value="flope">Drinks (with flope)</option>
+      <option value="hot">Hot and cold</option>
+      <option value="custom">Paste your own</option>
+    </select>
+  </div>
+  <div class="hgroup" title="Text size">
+    <button class="btn" id="smaller" aria-label="Smaller text">A−</button>
+    <button class="btn" id="bigger" aria-label="Bigger text">A+</button>
+  </div>
+</header>
+<nav class="tabs" role="tablist">
+  <button data-tab="text"><span class="k">1</span> Text</button>
+  <button data-tab="count"><span class="k">2</span> Count</button>
+  <button data-tab="table"><span class="k">3</span> Table</button>
+  <button data-tab="space"><span class="k">4</span> Space</button>
+  <button data-tab="sim"><span class="k">5</span> Similarity</button>
+</nav>
+<div class="settings">
+  <div><span class="lab">Words</span><span class="chips" id="chips"></span></div>
+  <div><span class="lab">Nearby means</span><span class="seg" id="window">
+    <button data-w="1">1 word</button><button data-w="2">2</button><button data-w="3">3</button><button data-w="5">5</button><button data-w="0">same sentence</button>
+  </span></div>
+  <label class="tg"><input type="checkbox" id="stopOn" checked> Ignore function words</label>
+  <label class="tg"><input type="checkbox" id="groupOn" checked> Group word forms <span class="lab">(barked → bark)</span></label>
+  <form class="addsent" id="addForm"><input type="text" id="addInput" placeholder="Add a sentence…" autocomplete="off"><button class="btn" type="submit">Add</button></form>
+</div>
+<main>
+  <section class="panel" id="p-text">
+    <div class="row">
+      <h2 style="margin:0">The text</h2>
+      <span class="note" id="stats" style="margin:0"></span>
+      <button class="btn" id="suggest">Suggest words to compare</button>
+    </div>
+    <p class="note">Edit, or paste in any English text. Everything else updates as you type.</p>
+    <textarea id="corpus" spellcheck="false"></textarea>
+  </section>
+
+  <section class="panel" id="p-count">
+    <div class="row"><span class="lab">Count contexts for</span><span class="targetpick" id="countPick"></span></div>
+    <div class="count-wrap">
+      <div>
+        <div class="stepbar">
+          <button class="btn" id="back" title="Back (←)">◀ Back</button>
+          <button class="btn primary" id="next" title="Next (→ or space)">Next ▶</button>
+          <button class="btn" id="all">Count all</button>
+          <button class="btn" id="reset">Start over</button>
+          <label class="tg" style="margin-left:.6rem"><input type="checkbox" id="showAll"> Show every sentence</label>
+          <span class="prog" id="prog"></span>
+        </div>
+        <div class="sentences" id="sentences"></div>
+      </div>
+      <div class="tally" id="tally"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="p-table">
+    <div class="row">
+      <h2 style="margin:0">Each row is a vector</h2>
+      <span class="lab">Columns</span><input type="range" id="kcols" min="3" max="14" value="7"><span id="kval" class="note" style="margin:0"></span>
+    </div>
+    <p class="note" id="tableNote"></p>
+    <div class="tablewrap"><table class="mx" id="matrix"></table></div>
+  </section>
+
+  <section class="panel" id="p-space">
+    <div class="row">
+      <span class="lab">Across:</span><select id="axX"></select>
+      <span class="lab">Up:</span><select id="axY"></select>
+      <label class="tg"><input type="checkbox" id="arrows" checked> Show arrows</label>
+    </div>
+    <div class="space-wrap">
+      <div class="plot" id="plot"><svg id="svg" viewBox="0 0 820 560" role="img" aria-label="Words plotted by their counts with two context words"></svg><div class="tip" id="tip"></div></div>
+      <div class="side" id="spaceSide"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="p-sim">
+    <div class="row"><span class="lab">How similar is</span><span class="targetpick" id="simPick"></span><span class="lab">to…</span></div>
+    <div class="sim-wrap">
+      <div class="simlist">
+        <div id="simList"></div>
+        <p class="note" id="simNote" style="margin-top:.8rem"></p>
+      </div>
+      <div class="side shared" id="shared"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const PRESETS = {"dog": {"text": "The dog barked in the park.\nThe owner of the dog put him on the leash since he barked.\nEvery morning the owner takes the dog for a walk.\nThe dog ran across the park to catch the ball.\nThe dog sleeps all afternoon and wakes up hungry.\nThe owner fed the dog and the cat before work.\nYou can pet the dog, but don't pull its tail.\nThe cat sat on the windowsill and watched the birds.\nOur cat likes to run around the house at night.\nThe cat sleeps on the bed all afternoon.\nChildren love to pet the cat when it purrs.\nThe hungry cat waited by its bowl to be fed.\nThe cat flicked its tail and walked away.\nThe vet said the cat and the dog are both healthy.\nThe lion roared at the zoo.\nA hungry lion can run very fast when it hunts.\nTourists watched the lion walk across the plain.\nThe lion sleeps in the shade most of the afternoon.\nThe zookeeper fed the lion at noon.\nThe lion swished its tail at the flies.\nThe car would not start this morning.\nShe left the car on the street.\nA new car needs a good engine.\nHe drove the car down the empty road.\nThe car needs gas before the long trip.\nThe bark of the old tree was rough.\nYou could hear the bark of a dog from far away.\nThe bark woke the owner in the middle of the night.\nA loud bark scared the cat.\nThe dog walked with its owner on a leash.", "targets": ["dog", "cat", "lion", "car", "bark"], "axes": ["owner", "walk"]}, "flope": {"text": "A bottle of tequila is on the shelf.\nNever drink tequila before you drive.\nTequila is made from agave in Mexico.\nThey drank shots of tequila with salt and lime at the party.\nToo much tequila will make you drunk.\nEverybody at the party likes tequila.\nHe opened a bottle of beer after work.\nDon't drink beer before you drive.\nBeer is made from barley and hops.\nThey drank cold beer at the party.\nTwo glasses of beer made him drunk.\nA bottle of orange juice is in the fridge.\nThe kids drink juice with breakfast.\nJuice is made from fresh oranges.\nShe poured a glass of juice for her son.\nDrink a glass of water after you exercise.\nA bottle of water is in my bag.\nThe kids drink water at school.\nI drink coffee every morning before work.\nThe coffee is too hot to drink.\nShe made a cup of coffee for breakfast.\nA bottle of flope is on the table.\nEverybody likes flope.\nDon't drink flope before you drive.\nWe make flope out of corn.", "targets": ["flope", "tequila", "beer", "juice", "water", "coffee"], "axes": ["drink", "drive"]}, "hot": {"text": "The coffee was too hot to drink.\nThe coffee was too cold to drink.\nIt was a hot day at the beach.\nIt was a cold day in the mountains.\nThe soup is still hot.\nThe soup got cold on the table.\nWear a coat when the weather is cold.\nWear a hat when the weather is hot.\nThe water in the pool was warm.\nA warm bath feels nice after a cold day.\nI like my tea hot.\nShe drinks her tea cold with ice.\nThe oven is very hot.\nThe fridge keeps the food cold.\nSpring brings warm weather.\nWe had warm soup for dinner.", "targets": ["hot", "cold", "warm", "coffee", "tea", "soup", "weather"], "axes": ["drink", "day"]}};
+
+/* ---------- language processing ---------- */
+const STOP = new Set(`a about across after all along also am an and any are aren't around as at be because been before being both but by can can't could did didn't do does doesn't don't done down each even every for from had has have having he her here him his how i if in into is isn't it its just many may me might more most much must my near no nor not of off on only onto or other our out over own same shall she should since so some still such than that the their them then there these they this those through to too under until up us very was wasn't we were what what's when where which while who whom whose why will with won't would yet you your`.split(/\s+/).filter(Boolean));
+const KEEP = new Set("morning evening spring string thing nothing something anything everything king ring wing sing bring ceiling wedding clothing always news series species yes plus lens bus gas this his has was is as".split(" "));
+const VOW = "aeiou";
+function cv(w){ let s=""; for(let i=0;i<w.length;i++){ const ch=w[i]; const v=VOW.includes(ch)||(ch==="y"&&i>0&&!VOW.includes(w[i-1])); s+=v?"v":"c"; } return s; }
+function measure(w){ return cv(w).replace(/(.)\1*/g,"$1").split("vc").length-1; }
+function hasVowel(w){ return cv(w).includes("v"); }
+function isCVC(w){ return w.length>=3 && cv(w).slice(-3)==="cvc" && !"wxy".includes(w[w.length-1]); }
+function stem(w){
+  if (KEEP.has(w) || w.length<=3) return w;
+  if (w.endsWith("sses")) w=w.slice(0,-2);
+  else if (w.endsWith("ies")) w=w.slice(0,-3)+"y";
+  else if (/(ch|sh|x|z)es$/.test(w)) w=w.slice(0,-2);
+  else if (w.endsWith("s") && !/(ss|us|is)$/.test(w)) w=w.slice(0,-1);
+  for (const suf of ["ing","ed"]) {
+    if (w.endsWith(suf) && !w.endsWith("eed")) {
+      const base=w.slice(0,-suf.length);
+      if (!hasVowel(base) || base.length<2) break;
+      if (/(at|bl|iz)$/.test(base)) return base+"e";
+      if (base.length>=2 && base[base.length-1]===base[base.length-2] && !"lsz".includes(base[base.length-1])) return base.slice(0,-1);
+      if (measure(base)===1 && isCVC(base)) return base+"e";
+      return base;
+    }
+  }
+  return w;
+}
+const TOKEN_RE = /[A-Za-z]+(?:['’][A-Za-z]+)?/g;
+function splitSentences(text){
+  return text.split(/(?<=[.!?])\s+|\n+/).map(s=>s.trim()).filter(s=>/[A-Za-z]/.test(s));
+}
+function tokenize(sentence){
+  const out=[]; let m; TOKEN_RE.lastIndex=0;
+  while((m=TOKEN_RE.exec(sentence))){
+    let raw=m[0].toLowerCase().replace("’","'");
+    if (raw.endsWith("'s")) raw=raw.slice(0,-2);
+    out.push({raw, start:m.index, end:m.index+m[0].length});
+  }
+  return out;
+}
+
+/* ---------- state ---------- */
+const S = {
+  preset: "dog",
+  texts: {}, targetsBy: {}, added: {},
+  window: 0, stop: true, group: true,
+  tab: "text",
+  countWord: null, step: 0,
+  simWord: null, simOther: null,
+  spaceSel: null, spaceOther: null,
+  kcols: 7,
+};
+for (const k of Object.keys(PRESETS)) { S.texts[k]=PRESETS[k].text; S.targetsBy[k]=[...PRESETS[k].targets]; S.added[k]=new Set(); }
+S.texts.custom=""; S.targetsBy.custom=[]; S.added.custom=new Set();
+
+let M = null; // model
+function norm(raw){ return S.group ? stem(raw) : raw; }
+function isFn(tok){ return STOP.has(tok.raw) || STOP.has(tok.norm); }
+function targets(){ return S.targetsBy[S.preset]; }
+
+function build(){
+  const text=S.texts[S.preset];
+  const sents=splitSentences(text).map(s=>{ const toks=tokenize(s); toks.forEach(t=>t.norm=norm(t.raw)); return {text:s, toks}; });
+  const T=targets().map(t=>norm(t.toLowerCase()));
+  const counts={}, occ={};
+  T.forEach(t=>{counts[t]={}; occ[t]=[];});
+  sents.forEach((s,si)=>{
+    s.toks.forEach((tok,i)=>{
+      const w=tok.norm; if(!(w in counts)) return;
+      const ctx=contextIdx(s,i);
+      occ[w].push({si,i,ctx});
+      ctx.forEach(j=>{ const c=s.toks[j].norm; counts[w][c]=(counts[w][c]||0)+1; });
+    });
+  });
+  // context vocabulary ordered by total count across targets
+  const tot={};
+  T.forEach(t=>{ for(const [c,n] of Object.entries(counts[t])) tot[c]=(tot[c]||0)+n; });
+  const vocab=Object.keys(tot).sort((a,b)=>tot[b]-tot[a]||a.localeCompare(b));
+  let words=0; sents.forEach(s=>words+=s.toks.length);
+  M={sents,T,counts,occ,vocab,tot,words};
+}
+function contextIdx(s,i){
+  const n=s.toks.length, w=S.window;
+  const lo= w===0?0:Math.max(0,i-w), hi= w===0?n:Math.min(n,i+w+1);
+  const out=[];
+  for(let j=lo;j<hi;j++){
+    if(j===i) continue;
+    const t=s.toks[j];
+    if(S.stop && isFn(t)) continue;
+    if(t.norm===s.toks[i].norm) continue;
+    out.push(j);
+  }
+  return out;
+}
+function cosine(a,b,dims){
+  let d=0,na=0,nb=0;
+  const keys= dims || [...new Set([...Object.keys(a),...Object.keys(b)])];
+  for(const k of keys){ const x=a[k]||0, y=b[k]||0; d+=x*y; na+=x*x; nb+=y*y; }
+  if(!na||!nb) return null;
+  return d/Math.sqrt(na*nb);
+}
+
+/* ---------- helpers ---------- */
+const $=id=>document.getElementById(id);
+function el(tag,attrs={},...kids){ const e=document.createElement(tag); for(const[k,v] of Object.entries(attrs)){ if(k==="class") e.className=v; else if(k.startsWith("on")) e.addEventListener(k.slice(2),v); else e.setAttribute(k,v);} kids.flat().forEach(k=>e.append(k)); return e; }
+function fmt(x){ return x==null? "—" : x.toFixed(2); }
+function store(k,v){ try{ localStorage.setItem("cwk-"+k, JSON.stringify(v)); }catch(e){} }
+function load(k,d){ try{ const v=localStorage.getItem("cwk-"+k); return v==null?d:JSON.parse(v);}catch(e){ return d; } }
+
+/* ---------- settings UI ---------- */
+function renderChips(){
+  const box=$("chips"); box.innerHTML="";
+  targets().forEach((t,i)=>{
+    box.append(el("span",{class:"chip"}, t, el("button",{title:"Remove "+t,"aria-label":"Remove "+t,onclick:()=>{ targets().splice(i,1); refresh(); }},"×")));
+  });
+  const inp=el("input",{type:"text",placeholder:"+ add word","aria-label":"Add a word to compare"});
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addTarget(inp.value); } });
+  box.append(inp);
+}
+function addTarget(v){
+  const w=(v||"").trim().toLowerCase().replace(/[^a-z']/g,"");
+  if(!w) return;
+  if(!targets().map(x=>norm(x)).includes(norm(w))) targets().push(w);
+  refresh();
+}
+function suggestTargets(){
+  const freq={};
+  splitSentences(S.texts[S.preset]).forEach(s=>tokenize(s).forEach(t=>{ t.norm=norm(t.raw); if(isFn(t)||t.raw.length<3) return; freq[t.norm]=(freq[t.norm]||0)+1; }));
+  S.targetsBy[S.preset]=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]).slice(0,6);
+  refresh();
+}
+
+/* ---------- views ---------- */
+function renderText(){
+  const ta=$("corpus");
+  if(ta.value!==S.texts[S.preset]) ta.value=S.texts[S.preset];
+  $("stats").textContent = `${M.sents.length} sentences · ${M.words} words`;
+}
+
+function pickRow(boxId, current, onPick){
+  const box=$(boxId); box.innerHTML="";
+  M.T.forEach((t,i)=>box.append(el("button",{class:t===current?"on":"",onclick:()=>onPick(t)}, targets()[i])));
+}
+
+function renderCount(){
+  if(!M.T.includes(S.countWord)) { S.countWord=M.T[0]||null; S.step=0; }
+  pickRow("countPick", S.countWord, w=>{ S.countWord=w; S.step=0; renderCount(); });
+  const box=$("sentences"), tally=$("tally");
+  box.innerHTML=""; tally.innerHTML="";
+  if(!S.countWord){ box.append(el("p",{class:"empty"},"Add a word to compare (above).")); return; }
+  const occ=M.occ[S.countWord];
+  S.step=Math.max(0,Math.min(S.step,occ.length));
+  const cur= S.step>0 ? occ[S.step-1] : null;
+  const doneSents=new Set(occ.slice(0,S.step).map(o=>o.si));
+  const hasT=new Set(occ.map(o=>o.si));
+  const addedSet=S.added[S.preset];
+  let curEl=null;
+  M.sents.forEach((s,si)=>{
+    if(!$("showAll").checked && !hasT.has(si)) return;
+    const d=el("div",{class:"sent"});
+    if(addedSet.has(s.text)) d.classList.add("added");
+    if(cur && cur.si===si){ d.classList.add("cur"); curEl=d; }
+    else if(doneSents.has(si)) d.classList.add("done");
+    else if(!hasT.has(si)) d.classList.add("dim");
+    let pos=0;
+    s.toks.forEach((tok,i)=>{
+      d.append(s.text.slice(pos,tok.start));
+      const sp=el("span",{class:"tok"}, s.text.slice(tok.start,tok.end));
+      if(cur && cur.si===si){
+        if(i===cur.i) sp.classList.add("t");
+        else if(cur.ctx.includes(i)) sp.classList.add("c");
+        else if(S.stop && isFn(tok)) sp.classList.add("fw");
+        else sp.classList.add("outwin");
+      } else if(tok.norm===S.countWord) sp.classList.add("t");
+      d.append(sp); pos=tok.end;
+    });
+    d.append(s.text.slice(pos));
+    box.append(d);
+  });
+  if(!occ.length) box.append(el("p",{class:"empty"},`“${S.countWord}” doesn't appear in the text.`));
+  $("prog").textContent = occ.length ? `${S.step} of ${occ.length} uses of “${S.countWord}” counted` : "";
+  $("back").disabled = S.step===0; $("next").disabled = S.step>=occ.length; $("all").disabled = S.step>=occ.length;
+  // tally
+  const t={}; occ.slice(0,S.step).forEach(o=>o.ctx.forEach(j=>{ const c=M.sents[o.si].toks[j].norm; t[c]=(t[c]||0)+1; }));
+  const fresh=new Set(cur? cur.ctx.map(j=>M.sents[cur.si].toks[j].norm):[]);
+  const rows=Object.entries(t).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
+  const max=Math.max(1,...rows.map(r=>r[1]));
+  tally.append(el("h3",{},`Words near “${S.countWord}”`));
+  if(!rows.length) tally.append(el("p",{class:"empty"}, occ.length? "Press Next ▶ to count the first use." : ""));
+  rows.forEach(([w,n])=>{
+    tally.append(el("div",{class:"trow"+(fresh.has(w)?" flash":"")}, el("span",{},w), el("div",{class:"bar",style:`width:${(n/max*100).toFixed(1)}%`}), el("span",{class:"n"},String(n))));
+  });
+  if(curEl) curEl.scrollIntoView({block:"nearest"});
+}
+
+function shade(v,max){
+  if(!v) return {bg:"transparent",fg:"var(--muted)"};
+  const a=0.12+0.78*(v/max);
+  return {bg:`rgba(42,120,214,${a.toFixed(3)})`, fg: a>0.55?"#fff":"var(--text)"};
+}
+function renderTable(){
+  const k=Math.min(S.kcols, M.vocab.length);
+  $("kval").textContent = `${k} of ${M.vocab.length} context words`;
+  $("kcols").max = Math.max(3, Math.min(20, M.vocab.length));
+  const cols=M.vocab.slice(0,k);
+  $("tableNote").textContent = M.vocab.length>k ? `Showing the ${k} most frequent context words. The full vectors have ${M.vocab.length} numbers each.` : `These are all the context words in the text.`;
+  const tb=$("matrix"); tb.innerHTML="";
+  const max=Math.max(1,...M.T.flatMap(t=>cols.map(c=>M.counts[t][c]||0)));
+  tb.append(el("thead",{}, el("tr",{}, el("th",{}), cols.map(c=>el("th",{},c)))));
+  const body=el("tbody");
+  M.T.forEach((t,i)=>{
+    const tr=el("tr",{class: S.tableSel===t?"sel":""}, el("th",{onclick:()=>{ S.tableSel = S.tableSel===t?null:t; renderTable(); }}, targets()[i]));
+    cols.forEach(c=>{ const v=M.counts[t][c]||0; const s=shade(v,max); tr.append(el("td",{style:`background:${s.bg};color:${s.fg}`}, String(v))); });
+    body.append(tr);
+  });
+  tb.append(body);
+}
+
+function renderSpace(){
+  const opts=M.vocab;
+  const sx=$("axX"), sy=$("axY");
+  const nonT=opts.filter(o=>!M.T.includes(o));
+  const pa=(PRESETS[S.preset]||{}).axes||[];
+  if(!opts.includes(S.axX)) S.axX= opts.includes(pa[0])? pa[0] : (nonT[0]||opts[0]);
+  if(!opts.includes(S.axY) || S.axY===S.axX) S.axY= (opts.includes(pa[1]) && pa[1]!==S.axX)? pa[1] : (nonT.find(o=>o!==S.axX)||opts.find(o=>o!==S.axX));
+  [sx,sy].forEach((sel,j)=>{ sel.innerHTML=""; opts.forEach(o=>sel.append(el("option",{value:o},o))); sel.value= j? S.axY : S.axX; });
+  const svg=$("svg"); svg.innerHTML="";
+  const side=$("spaceSide"); side.innerHTML="";
+  if(!S.axX || !S.axY){ side.append(el("p",{class:"empty"},"Not enough context words to plot.")); return; }
+  const W=820,H=560,L=70,R=30,T=24,B=70;
+  const pts=M.T.map((t,i)=>({w:t,label:targets()[i],x:M.counts[t][S.axX]||0,y:M.counts[t][S.axY]||0}));
+  const mx=Math.max(2,...pts.map(p=>p.x))+1, my=Math.max(2,...pts.map(p=>p.y))+1;
+  const X=v=>L+(W-L-R)*v/mx, Y=v=>H-B-(H-T-B)*v/my;
+  const NS="http://www.w3.org/2000/svg";
+  const s=(tag,a)=>{ const e=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(a)) e.setAttribute(k,v); return e; };
+  const defs=s("defs",{});
+  [["ah","#b9b8b2"],["ahs","#2a78d6"]].forEach(([id,c])=>{ const m=s("marker",{id,viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"}); m.append(s("path",{d:"M0,0 L10,5 L0,10 z",fill:c})); defs.append(m); });
+  svg.append(defs);
+  const step=v=>v<=8?1:v<=20?2:5;
+  for(let v=0; v<=mx; v+=step(mx)){ svg.append(s("line",{x1:X(v),x2:X(v),y1:T,y2:H-B,stroke:"#eeede9","stroke-width":1})); const tx=s("text",{x:X(v),y:H-B+22,"text-anchor":"middle","font-size":15,fill:"#52514e"}); tx.textContent=v; svg.append(tx); }
+  for(let v=0; v<=my; v+=step(my)){ svg.append(s("line",{x1:L,x2:W-R,y1:Y(v),y2:Y(v),stroke:"#eeede9","stroke-width":1})); const ty=s("text",{x:L-10,y:Y(v)+5,"text-anchor":"end","font-size":15,fill:"#52514e"}); ty.textContent=v; svg.append(ty); }
+  svg.append(s("line",{x1:L,x2:W-R,y1:H-B,y2:H-B,stroke:"#8b8a85","stroke-width":1.5}));
+  svg.append(s("line",{x1:L,x2:L,y1:T,y2:H-B,stroke:"#8b8a85","stroke-width":1.5}));
+  const xl=s("text",{x:(L+W-R)/2,y:H-18,"text-anchor":"middle","font-size":18,fill:"#0b0b0b","font-weight":600}); xl.textContent=`times near “${S.axX}”`; svg.append(xl);
+  const yl=s("text",{x:20,y:(T+H-B)/2,"text-anchor":"middle","font-size":18,fill:"#0b0b0b","font-weight":600,transform:`rotate(-90 20 ${(T+H-B)/2})`}); yl.textContent=`times near “${S.axY}”`; svg.append(yl);
+  if(!M.T.includes(S.spaceSel)) S.spaceSel=M.T[0];
+  if(S.spaceOther===S.spaceSel || !M.T.includes(S.spaceOther)) S.spaceOther=null;
+  const hot=new Set([S.spaceSel,S.spaceOther].filter(Boolean));
+  // group coincident points
+  const groups={}; pts.forEach(p=>{ const k=p.x+","+p.y; (groups[k]=groups[k]||[]).push(p); });
+  if($("arrows").checked){
+    pts.filter(p=>p.x||p.y).sort((a,b)=>hot.has(a.w)-hot.has(b.w)).forEach(p=>{
+      const on=hot.has(p.w);
+      svg.append(s("line",{x1:X(0),y1:Y(0),x2:X(p.x),y2:Y(p.y),stroke:on?"#2a78d6":"#c9c8c2","stroke-width":on?3:2,"marker-end":`url(#${on?"ahs":"ah"})`}));
+    });
+  }
+  const tip=$("tip");
+  Object.values(groups).forEach(g=>{
+    const p=g[0], on=g.some(q=>hot.has(q.w));
+    const c=s("circle",{cx:X(p.x),cy:Y(p.y),r:on?9:7,fill:on?"#2a78d6":"#52514e",stroke:"#fff","stroke-width":2,style:"cursor:pointer"});
+    const hit=s("circle",{cx:X(p.x),cy:Y(p.y),r:20,fill:"transparent",style:"cursor:pointer"});
+    const lab=s("text",{x:X(p.x)+13,y:Y(p.y)-11,"font-size":20,"font-weight":on?750:600,fill:"#0b0b0b"}); lab.textContent=g.map(q=>q.label).join(", ");
+    const show=e=>{ const r=$("plot").getBoundingClientRect(); tip.style.display="block"; tip.innerHTML=g.map(q=>`<b>${q.label}</b>: ${q.x} near “${S.axX}”, ${q.y} near “${S.axY}”`).join("<br>"); tip.style.left=(e.clientX-r.left+14)+"px"; tip.style.top=(e.clientY-r.top+14)+"px"; };
+    [hit,c,lab].forEach(n=>{ n.addEventListener("mousemove",show); n.addEventListener("mouseleave",()=>tip.style.display="none"); n.addEventListener("click",()=>{ const w=g[0].w; if(w===S.spaceSel) return; S.spaceOther = S.spaceOther===w? null : w; renderSpace(); }); n.addEventListener("dblclick",()=>{ S.spaceSel=g[0].w; S.spaceOther=null; renderSpace(); }); });
+    svg.append(c, lab, hit);
+  });
+  // side panel
+  side.append(el("p",{class:"note"},"Each word is a point. Its position is how often it appeared near the two words on the axes."));
+  const pick=el("div",{class:"targetpick",style:"margin:.4rem 0 .8rem"});
+  M.T.forEach((t,i)=>pick.append(el("button",{class:t===S.spaceSel?"on":"",onclick:()=>{ S.spaceSel=t; if(S.spaceOther===t) S.spaceOther=null; renderSpace(); }}, targets()[i])));
+  side.append(el("div",{class:"lab"},"Compare"), pick);
+  const lab=w=>targets()[M.T.indexOf(w)];
+  if(S.spaceOther){
+    const a=M.counts[S.spaceSel], b=M.counts[S.spaceOther];
+    const c2=cosine(a,b,[S.axX,S.axY]);
+    const ang= c2==null? null : Math.acos(Math.max(-1,Math.min(1,c2)))*180/Math.PI;
+    side.append(el("div",{}, el("b",{},lab(S.spaceSel)), " vs. ", el("b",{},lab(S.spaceOther))));
+    side.append(el("div",{class:"lab",style:"margin-top:.6rem"},"Angle between the arrows"));
+    side.append(el("div",{class:"big"}, ang==null?"—":`${Math.round(ang)}°`));
+    side.append(el("div",{class:"lab",style:"margin-top:.4rem"},"Cosine (just these 2 dimensions)"));
+    side.append(el("div",{class:"big"}, fmt(c2)));
+    side.append(el("p",{class:"note",style:"margin-top:.8rem"},"Small angle = similar contexts. Cosine is 1 when the arrows point the same way and 0 when they're at right angles."));
+  } else {
+    side.append(el("p",{class:"note"},`Click another word in the plot to compare it with “${lab(S.spaceSel)}”.`));
+  }
+  side.append(el("p",{class:"note",style:"margin-top:1rem"},`Only 2 of ${M.vocab.length} dimensions are shown here. The Similarity tab uses all of them.`));
+}
+
+function renderSim(){
+  if(!M.T.includes(S.simWord)) S.simWord=M.T[0]||null;
+  pickRow("simPick", S.simWord, w=>{ S.simWord=w; S.simOther=null; renderSim(); });
+  const list=$("simList"), sh=$("shared"); list.innerHTML=""; sh.innerHTML="";
+  if(!S.simWord){ list.append(el("p",{class:"empty"},"Add words to compare (above).")); return; }
+  const lab=w=>targets()[M.T.indexOf(w)];
+  const rows=M.T.filter(t=>t!==S.simWord).map(t=>({t, v:cosine(M.counts[S.simWord],M.counts[t])}));
+  rows.sort((a,b)=>(b.v??-1)-(a.v??-1));
+  if(!S.simOther || !rows.find(r=>r.t===S.simOther)) S.simOther=rows[0]?.t||null;
+  rows.forEach(r=>{
+    list.append(el("div",{class:"srow"+(r.t===S.simOther?" on":""),onclick:()=>{ S.simOther=r.t; renderSim(); }},
+      el("span",{class:"w"},lab(r.t)),
+      el("div",{class:"track"}, el("div",{class:"fill",style:`width:${((r.v||0)*100).toFixed(1)}%`})),
+      el("span",{class:"v"}, r.v==null? "none" : fmt(r.v))));
+  });
+  $("simNote").textContent = `Cosine similarity over all ${M.vocab.length} context words: 1 = exactly the same contexts, 0 = no contexts in common.`;
+  if(S.simOther){
+    const a=M.counts[S.simWord], b=M.counts[S.simOther];
+    const shared=Object.keys(a).filter(k=>b[k]).sort((x,y)=>(a[y]*b[y])-(a[x]*b[x])||x.localeCompare(y));
+    sh.append(el("h3",{style:"margin:0 0 .5rem"}, `Context words “${lab(S.simWord)}” and “${lab(S.simOther)}” share`));
+    if(!shared.length) sh.append(el("p",{class:"empty"},"None: that's why the similarity is 0."));
+    else sh.append(el("table",{}, el("thead",{}, el("tr",{}, el("th",{},"context word"), el("th",{},lab(S.simWord)), el("th",{},lab(S.simOther)))),
+      el("tbody",{}, shared.map(k=>el("tr",{}, el("td",{},k), el("td",{},String(a[k])), el("td",{},String(b[k])))))));
+  }
+}
+
+function render(){
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===S.tab));
+  document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("on",p.id==="p-"+S.tab));
+  document.querySelectorAll("#window button").forEach(b=>b.classList.toggle("on",+b.dataset.w===S.window));
+  renderChips();
+  renderText();
+  if(S.tab==="count") renderCount();
+  if(S.tab==="table") renderTable();
+  if(S.tab==="space") renderSpace();
+  if(S.tab==="sim") renderSim();
+}
+function refresh(){ build(); render(); }
+
+/* ---------- events ---------- */
+document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{ S.tab=b.dataset.tab; render(); }));
+document.querySelectorAll("#window button").forEach(b=>b.addEventListener("click",()=>{ S.window=+b.dataset.w; S.step=0; refresh(); }));
+$("stopOn").addEventListener("change",e=>{ S.stop=e.target.checked; S.step=0; refresh(); });
+$("groupOn").addEventListener("change",e=>{ S.group=e.target.checked; S.step=0; refresh(); });
+$("preset").addEventListener("change",e=>{ S.preset=e.target.value; S.step=0; S.countWord=S.simWord=S.spaceSel=S.spaceOther=S.simOther=S.tableSel=S.axX=S.axY=null; if(S.preset==="custom" && !S.texts.custom) S.tab="text"; refresh(); });
+let tmr=null;
+$("corpus").addEventListener("input",e=>{ S.texts[S.preset]=e.target.value; clearTimeout(tmr); tmr=setTimeout(()=>{ build(); $("stats").textContent=`${M.sents.length} sentences · ${M.words} words`; },250); });
+$("suggest").addEventListener("click",suggestTargets);
+$("addForm").addEventListener("submit",e=>{
+  e.preventDefault(); const v=$("addInput").value.trim(); if(!v) return;
+  const sent=/[.!?]$/.test(v)? v : v+".";
+  const t=S.texts[S.preset]; S.texts[S.preset]= t + (t && !t.endsWith("\n")? "\n":"") + sent;
+  S.added[S.preset].add(sent); $("addInput").value=""; refresh();
+});
+$("next").addEventListener("click",()=>{ S.step++; renderCount(); });
+$("back").addEventListener("click",()=>{ S.step=Math.max(0,S.step-1); renderCount(); });
+$("all").addEventListener("click",()=>{ S.step=M.occ[S.countWord]?.length||0; renderCount(); });
+$("reset").addEventListener("click",()=>{ S.step=0; renderCount(); });
+$("showAll").addEventListener("change",renderCount);
+$("kcols").addEventListener("input",e=>{ S.kcols=+e.target.value; renderTable(); });
+$("axX").addEventListener("change",e=>{ S.axX=e.target.value; if(S.axY===S.axX) S.axY=M.vocab.find(o=>o!==S.axX); renderSpace(); });
+$("axY").addEventListener("change",e=>{ S.axY=e.target.value; if(S.axY===S.axX) S.axX=M.vocab.find(o=>o!==S.axY); renderSpace(); });
+$("arrows").addEventListener("change",renderSpace);
+let fs=load("fs",19);
+const applyFs=()=>{ document.documentElement.style.fontSize=fs+"px"; store("fs",fs); };
+$("smaller").addEventListener("click",()=>{ fs=Math.max(13,fs-1); applyFs(); });
+$("bigger").addEventListener("click",()=>{ fs=Math.min(30,fs+1); applyFs(); });
+document.addEventListener("keydown",e=>{
+  const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if(typing) return;
+  const tabs=["text","count","table","space","sim"];
+  if(/^[1-5]$/.test(e.key)){ S.tab=tabs[+e.key-1]; render(); return; }
+  if(S.tab==="count"){
+    if(e.key==="ArrowRight"||e.key===" "){ e.preventDefault(); if(!$("next").disabled){ S.step++; renderCount(); } }
+    if(e.key==="ArrowLeft"){ e.preventDefault(); S.step=Math.max(0,S.step-1); renderCount(); }
+  }
+});
+applyFs();
+refresh();
+</script>
+</body>
+</html>
