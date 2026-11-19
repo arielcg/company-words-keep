@@ -85,7 +85,10 @@
   .tablewrap { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
   table.mx { border-collapse: separate; border-spacing: 2px; font-variant-numeric: tabular-nums; margin: .4rem; }
   table.mx th, table.mx td { padding: .45rem .7rem; text-align: center; border-radius: 6px; }
-  table.mx thead th { color: var(--text-2); font-weight: 550; font-size: .95rem; }
+  table.mx thead th { color: var(--text-2); font-weight: 550; font-size: .95rem; white-space: nowrap; }
+  table.mx thead th .ig { border: none; background: none; color: var(--muted); cursor: pointer; padding: 0 0 0 .25rem; font-size: .9rem; visibility: hidden; }
+  table.mx thead th:hover .ig, table.mx thead th .ig:focus-visible { visibility: visible; }
+  table.mx thead th .ig:hover { color: var(--text); }
   table.mx tbody th { text-align: left; font-weight: 700; cursor: pointer; }
   table.mx tr.sel th { color: var(--accent); }
   table.mx tr.sel td { outline: 2px solid var(--accent); }
@@ -158,6 +161,7 @@
       <button class="btn" id="suggest">Suggest words to compare</button>
     </div>
     <p class="note">Edit, or paste in any English text. Everything else updates as you type.</p>
+    <div class="row"><label for="extraStop" class="lab">Also ignore these words</label><input type="text" id="extraStop" style="flex:1 1 20rem" autocomplete="off"><span class="note" style="margin:0">separate with commas or spaces</span></div>
     <textarea id="corpus" spellcheck="false"></textarea>
   </section>
 
@@ -242,8 +246,9 @@ function stem(w){
   return w;
 }
 const TOKEN_RE = /[A-Za-z]+(?:['’][A-Za-z]+)?/g;
+const ABBR = /\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Mt|vs|etc|e\.g|i\.e)\./gi;
 function splitSentences(text){
-  return text.split(/(?<=[.!?])\s+|\n+/).map(s=>s.trim()).filter(s=>/[A-Za-z]/.test(s));
+  return text.replace(ABBR,"$1").split(/(?<=[.!?])\s+|\n+/).map(s=>s.trim()).filter(s=>/[A-Za-z]/.test(s));
 }
 function tokenize(sentence){
   const out=[]; let m; TOKEN_RE.lastIndex=0;
@@ -265,6 +270,7 @@ const S = {
   simWord: null, simOther: null,
   spaceSel: null, spaceOther: null,
   kcols: 7,
+  extra: "said",
 };
 for (const k of Object.keys(PRESETS)) { S.texts[k]=PRESETS[k].text; S.targetsBy[k]=[...PRESETS[k].targets]; S.added[k]=new Set(); }
 S.texts.custom=""; S.targetsBy.custom=[]; S.added.custom=new Set();
@@ -272,6 +278,10 @@ S.texts.custom=""; S.targetsBy.custom=[]; S.added.custom=new Set();
 let M = null; // model
 function norm(raw){ return S.group ? stem(raw) : raw; }
 function isFn(tok){ return STOP.has(tok.raw) || STOP.has(tok.norm); }
+let EXTRA=new Set();
+function updateExtra(){ EXTRA=new Set(S.extra.toLowerCase().split(/[\s,]+/).filter(Boolean).flatMap(w=>[w, stem(w)])); }
+function isExtra(tok){ return EXTRA.has(tok.raw) || EXTRA.has(tok.norm); }
+function skipped(tok){ return (S.stop && isFn(tok)) || isExtra(tok); }
 function targets(){ return S.targetsBy[S.preset]; }
 
 function build(){
@@ -302,7 +312,7 @@ function contextIdx(s,i){
   for(let j=lo;j<hi;j++){
     if(j===i) continue;
     const t=s.toks[j];
-    if(S.stop && isFn(t)) continue;
+    if(skipped(t)) continue;
     if(t.norm===s.toks[i].norm) continue;
     out.push(j);
   }
@@ -341,7 +351,7 @@ function addTarget(v){
 }
 function suggestTargets(){
   const freq={};
-  splitSentences(S.texts[S.preset]).forEach(s=>tokenize(s).forEach(t=>{ t.norm=norm(t.raw); if(isFn(t)||t.raw.length<3) return; freq[t.norm]=(freq[t.norm]||0)+1; }));
+  splitSentences(S.texts[S.preset]).forEach(s=>tokenize(s).forEach(t=>{ t.norm=norm(t.raw); if(isFn(t)||isExtra(t)||t.raw.length<3) return; freq[t.norm]=(freq[t.norm]||0)+1; }));
   S.targetsBy[S.preset]=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]).slice(0,6);
   refresh();
 }
@@ -385,7 +395,7 @@ function renderCount(){
       if(cur && cur.si===si){
         if(i===cur.i) sp.classList.add("t");
         else if(cur.ctx.includes(i)) sp.classList.add("c");
-        else if(S.stop && isFn(tok)) sp.classList.add("fw");
+        else if(skipped(tok)) sp.classList.add("fw");
         else sp.classList.add("outwin");
       } else if(tok.norm===S.countWord) sp.classList.add("t");
       d.append(sp); pos=tok.end;
@@ -422,7 +432,7 @@ function renderTable(){
   $("tableNote").textContent = M.vocab.length>k ? `Showing the ${k} most frequent context words. The full vectors have ${M.vocab.length} numbers each.` : `These are all the context words in the text.`;
   const tb=$("matrix"); tb.innerHTML="";
   const max=Math.max(1,...M.T.flatMap(t=>cols.map(c=>M.counts[t][c]||0)));
-  tb.append(el("thead",{}, el("tr",{}, el("th",{}), cols.map(c=>el("th",{},c)))));
+  tb.append(el("thead",{}, el("tr",{}, el("th",{}), cols.map(c=>el("th",{}, c, el("button",{class:"ig",title:`Ignore “${c}”`,"aria-label":`Ignore ${c}`,onclick:()=>ignoreWord(c)},"×"))))));
   const body=el("tbody");
   M.T.forEach((t,i)=>{
     const tr=el("tr",{class: S.tableSel===t?"sel":""}, el("th",{onclick:()=>{ S.tableSel = S.tableSel===t?null:t; renderTable(); }}, targets()[i]));
@@ -432,6 +442,11 @@ function renderTable(){
   tb.append(body);
 }
 
+function ignoreWord(w){
+  const cur=S.extra.split(/[\s,]+/).filter(Boolean);
+  if(!cur.includes(w)) cur.push(w);
+  S.extra=cur.join(", "); $("extraStop").value=S.extra; updateExtra(); refresh();
+}
 function renderSpace(){
   const opts=M.vocab;
   const sx=$("axX"), sy=$("axY");
@@ -550,6 +565,8 @@ $("preset").addEventListener("change",e=>{ S.preset=e.target.value; S.step=0; S.
 let tmr=null;
 $("corpus").addEventListener("input",e=>{ S.texts[S.preset]=e.target.value; clearTimeout(tmr); tmr=setTimeout(()=>{ build(); $("stats").textContent=`${M.sents.length} sentences · ${M.words} words`; },250); });
 $("suggest").addEventListener("click",suggestTargets);
+let tmr2=null;
+$("extraStop").addEventListener("input",e=>{ S.extra=e.target.value; clearTimeout(tmr2); tmr2=setTimeout(()=>{ updateExtra(); S.step=0; build(); },250); });
 $("addForm").addEventListener("submit",e=>{
   e.preventDefault(); const v=$("addInput").value.trim(); if(!v) return;
   const sent=/[.!?]$/.test(v)? v : v+".";
@@ -580,6 +597,7 @@ document.addEventListener("keydown",e=>{
   }
 });
 applyFs();
+$("extraStop").value=S.extra; updateExtra();
 refresh();
 </script>
 </body>
